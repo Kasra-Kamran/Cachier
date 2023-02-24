@@ -75,24 +75,11 @@ Storage<T, U>::Storage(std::shared_ptr<asio::io_service> io_ctx, std::size_t num
         m.command = Get;
         for(int i = 0; i < 5; i++)
             co_await this->_outgoing[i]->async_send(error_code{}, m, asio::use_awaitable);
-        // boost::asio::deadline_timer timer(*io_ctx);
-        // timer.expires_from_now(boost::posix_time::seconds(2));
-        // co_await timer.async_wait(boost::asio::use_awaitable_t());
         std::cout << "sender coroutine ended\n";
         co_return;
     }, boost::asio::detached);
     std::cout << "main ended\n";
 }
-
-// Things get fucked when you use a template class method.
-// template <typename T, typename U>
-// awaitable<void> Storage<T, U>::cache(unordered_map<U, T> box, shared_ptr<experimental::concurrent_channel<void(boost::system::error_code, U)>> incoming)
-// {    
-//     std::cout << "dear god why";
-//     co_await incoming->async_receive(use_awaitable_t());
-//     co_return;
-// }
-
 
 // Should get an io object as an argument,
 // create a coroutine and pass the io object
@@ -114,6 +101,7 @@ Storage<T, U>::Storage(std::shared_ptr<asio::io_service> io_ctx, std::size_t num
 template <typename T, typename U>
 asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
 {
+    // To-Do
     std::hash<U> hasher;
     std::size_t hash = hasher(key);
     std::cout << hash << "\n";
@@ -133,10 +121,6 @@ asio::awaitable<void> Storage<T, U>::insert(std::vector<std::tuple<U, T>> entrie
         std::vector<std::tuple<U, T>> data;
 
         std::size_t length_entries = entries.size();
-        // for (std::vector<int>::iterator it = c.begin(); it != c.end();)
-        // {
-
-        // }
         for(int j = 0; i < length_entries; i++)
         {
             if(hasher(std::get<0>(entries[j])) % num_caches == i)
@@ -156,11 +140,10 @@ asio::awaitable<void> Storage<T, U>::insert(std::vector<std::tuple<U, T>> entrie
 template <typename T, typename U>
 asio::awaitable<void> Storage<T, U>::kill()
 {
-    // co_spawn()
-    // for(auto channel : _outgoing)
-    // {
-    //     co_await channel-
-    // }
+    Message<T, U> m;
+    m.command = Die;
+    for(auto channel : _outgoing)
+        co_await channel->async_send(boost::system::error_code{}, m, asio::use_awaitable);
     std::cout << "kill ran\n";
     co_return;
 }

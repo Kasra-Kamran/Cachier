@@ -33,7 +33,7 @@ namespace std
 int main()
 {
     auto io_context = std::make_shared<boost::asio::io_context>(2);
-    auto channel = make_shared<Channel>(*io_context, sizeof(std::string));
+    auto channel = make_shared<Channel>(*io_context, 1);
     Storage<int, key> storage(io_context, 5);
     Controller<int, key> remote(io_context, std::move(storage), channel);
 

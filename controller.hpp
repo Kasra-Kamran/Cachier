@@ -15,7 +15,7 @@ namespace asio = boost::asio;
 using boost::system::error_code;
 using Executor = asio::any_io_executor;
 using Channel = asio::use_awaitable_t<Executor>::as_default_on_t<
-    asio::experimental::concurrent_channel<void(error_code, std::string)>>;
+    asio::experimental::concurrent_channel<void(error_code, bool)>>;
 using asio::ip::tcp;
 
 template <typename T, typename U>
@@ -27,8 +27,8 @@ public:
 
 private:
     Storage<T, U> _storage;
-    asio::awaitable<void> accept_loop(std::shared_ptr<asio::io_context> io_ctx, std::shared_ptr<Channel> channel);
-    asio::awaitable<void> handle_connection(tcp::socket&& stream, std::shared_ptr<Channel> channel);
+    asio::awaitable<void> accept_loop(std::shared_ptr<Channel> channel);
+    asio::awaitable<void> handle_connection(tcp::socket&& stream, std::shared_ptr<Channel> kill_accept_loop, std::shared_ptr<Channel> kc, std::atomic<int>& count);
 };
 
 #include "controller.inl"
