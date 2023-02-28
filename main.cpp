@@ -33,11 +33,12 @@ namespace std
 int main()
 {
     asio::io_context io_context(2);
-    Channel cancellation_channel(io_context, 1);
+    Channel command_receiver_cancellation_channel(io_context, 1);
     UChannel<std::string> msg_channel(io_context, 10);
     UChannel<std::string> response_channel(io_context, 10);
     Storage<std::string, key> storage(io_context, 5, msg_channel, response_channel);
     Comms command_receiver(io_context, cancellation_channel, 8001, msg_channel, response_channel);
+    Comms main(io_context, cancellation_channel)
 
     // test: get and insert.
     co_spawn(io_context, [](Storage<std::string, key>& storage) -> asio::awaitable<void>

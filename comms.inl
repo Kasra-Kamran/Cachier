@@ -50,6 +50,11 @@ asio::awaitable<void> Comms::handle_connection(tcp::socket&& stream, Channel& ki
     Channel kill_response(ex, 1);
     co_spawn(ex, respond(stream, response_channel, kill_response), asio::detached);
     auto tok = asio::as_tuple(asio::use_awaitable);
+    std::map<std::string, int> comms_commands
+    {
+        {"disable", 0},
+        {"enable", 1},
+    };
     bool k = true;
     bool u = true;
     boost::system::error_code ec;
@@ -70,6 +75,10 @@ asio::awaitable<void> Comms::handle_connection(tcp::socket&& stream, Channel& ki
             buffer.resize(n);
             std::cout << "new message: " << buffer << std::endl;
         }
+
+        // make try + switch block to handle these, with
+        // the default case being sending it to "msg_channel".
+        
         if(u && buffer == "kill_accept_loop")
         {
             u = false;
