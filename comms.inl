@@ -9,6 +9,14 @@ Comms::Comms(asio::io_context& io_ctx, Channel& cancellation_channel, std::size_
     co_spawn(io_ctx, accept_loop(cancellation_channel, port, msg_channel, response_channel), asio::detached);
 }
 
+// asio::awaitable<void> Comms::relay(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
+// {
+//     std::string msg = co_await msg_channel.async_receive(asio::use_awaitable);
+//     // struct id and stuff
+//     UChannel<std::string> a(ex, 1);
+    
+// }
+
 asio::awaitable<void> Comms::accept_loop(Channel& channel, std::size_t port, UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
 {
     auto ex = co_await asio::this_coro::executor;
@@ -43,6 +51,7 @@ asio::awaitable<void> Comms::accept_loop(Channel& channel, std::size_t port, UCh
     co_return;
 }
 
+// fix this response channel shit, the responder doesn't work!
 asio::awaitable<void> Comms::handle_connection(tcp::socket&& stream, Channel& kill_accept_loop, Channel& kc, std::atomic<int>& kc_count, UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
 {
     // Re-read this code.
@@ -73,7 +82,7 @@ asio::awaitable<void> Comms::handle_connection(tcp::socket&& stream, Channel& ki
         if (n)
         {
             buffer.resize(n);
-            std::cout << "new message: " << buffer << std::endl;
+            std::cout << "new message: " << buffer << "\n";
         }
 
         // make try + switch block to handle these, with

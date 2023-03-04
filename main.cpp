@@ -1,6 +1,9 @@
 #include "storage.hpp"
 #include "comms.hpp"
+#include <nlohmann/json.hpp>
 #include <string>
+
+using json = nlohmann::json;
 
 struct key
 {
@@ -13,6 +16,67 @@ public:
         if(lhs.id == rhs.id && lhs.date == rhs.date)
             return true;
         return false;
+    }
+
+    static key from_json(json j)
+    {
+        try
+        {
+            key k;
+            k.id = j["id"];
+            k.date = j["date"];
+            return k;
+        }
+        catch(const std::exception& e)
+        {
+            std::cout << __LINE__ << " : " << e.what() << "\n";
+            throw;
+        }
+    }
+
+    static json to_json(key k)
+    {
+        return json
+        {
+            {"id", k.id},
+            {"date", k.date},
+        };
+    }
+};
+
+struct value
+{
+public:
+    std::string data;
+
+    friend bool operator==(const value& lhs, const value& rhs)
+    {
+        if(lhs.data == rhs.data)
+            return true;
+        return false;
+    }
+
+    static value from_json(json j)
+    {
+        try
+        {
+            value v;
+            v.data = j["data"];
+            return v;
+        }
+        catch(const std::exception& e)
+        {
+            std::cout << __LINE__ << " : " << e.what() << "\n";
+            throw;
+        }
+    }
+
+    static json to_json(value v)
+    {
+        return json
+        {
+            {"data", v.data},
+        };
     }
 };
 
@@ -28,32 +92,42 @@ namespace std
                     (hasher(std::to_string(k.date)) << 1));
         }
     };
+
+    template<>
+    struct hash<value>
+    {
+        std::size_t operator()(const value& v) const
+        {
+            return (std::hash<string>()(v.data));
+        }
+    };
 }
 
 int main()
 {
     asio::io_context io_context(2);
-    Channel command_receiver_cancellation_channel(io_context, 1);
+    Channel command_receiver_cancellation_channel(io_context, 2);
     UChannel<std::string> msg_channel(io_context, 10);
     UChannel<std::string> response_channel(io_context, 10);
-    Storage<std::string, key> storage(io_context, 5, msg_channel, response_channel);
-    Comms command_receiver(io_context, cancellation_channel, 8001, msg_channel, response_channel);
-    Comms main(io_context, cancellation_channel)
+    Storage<value, key> storage(io_context, 5, msg_channel, response_channel);
+    Comms command_receiver(io_context, command_receiver_cancellation_channel, 8001, msg_channel, response_channel);
+    // Comms main(io_context, cancellation_channel)
 
     // test: get and insert.
-    co_spawn(io_context, [](Storage<std::string, key>& storage) -> asio::awaitable<void>
+    co_spawn(io_context, [](Storage<value, key>& storage) -> asio::awaitable<void>
     {
-        std::vector<std::tuple<key, std::string>> data;
+        std::vector<std::tuple<key, value>> data;
         key k;
         k.id = 5;
         k.date = 2.5;
-        std::string value = "the cache is working!";
-        data.push_back(std::make_tuple(k, value));
+        value v;
+        v.data = "the cache is working!";
+        data.push_back(std::make_tuple(k, v));
 
         co_await storage.insert(data);
-        std::optional<std::string> result = co_await storage.get(k);
+        std::optional<value> result = co_await storage.get(k);
         if(result.has_value())
-            std::cout << *result << "\n";
+            std::cout << value::to_json(*result).dump() << "\n";
         else
             std::cout << "doesn't exist\n";
 
@@ -61,7 +135,7 @@ int main()
         result = co_await storage.get(k);
         if(result.has_value())
         {
-            std::cout << *result << "\n";
+            std::cout << value::to_json(*result).dump() << "\n";
         }
         else
         {

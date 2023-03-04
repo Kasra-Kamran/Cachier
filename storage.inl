@@ -27,10 +27,178 @@ Storage<T, U>::Storage(asio::io_service& io_ctx, std::size_t num_caches, UChanne
     {
         auto channel = std::make_shared<UChannel<Message<T, U>>>(io_ctx, sizeof(T));
         _outgoing.push_back(channel);
-        co_spawn(io_ctx, cache<T, U>(std::move(_warehouse[i]), *channel), asio::detached);
+        co_spawn(io_ctx, cache(std::move(_warehouse[i]), *channel), asio::detached);
     }
-    co_spawn(io_ctx, handle_storage_commands(msg_channel, response_channel, *this), asio::detached);
+    co_spawn(io_ctx, handle_storage_commands(msg_channel, response_channel), asio::detached);
     std::cout << "main ended\n";
+}
+
+// "cache" should not handle cases where the entry is
+// in the DB instead of the cache; it should spawn a coroutine
+// that waits for a respose from the DB and passes it
+// to "get".
+template <typename T, typename U>
+asio::awaitable<void> Storage<T, U>::cache(std::unordered_map<U, T>&& box, UChannel<Message<T, U>>& incoming)
+{
+    bool not_dead = true;
+    while(not_dead)
+    {
+        Message<T, U> msg = co_await incoming.async_receive(asio::use_awaitable);
+        switch(msg.command)
+        {
+            case Insert:
+                if(!msg.data)
+                    break;
+                for(auto record : *msg.data)
+                    box.insert({std::get<0>(record), std::get<1>(record)});
+                break;
+
+            case Die:
+                not_dead = false;
+                std::cout << "cache died\n";
+                break;
+
+            case Get:
+                try
+                {
+                    // fix this it's shit and will break.
+                    T value = box.at(*(msg.key));
+                    new (**msg.return_value) T(value);
+                    // make this async_send.
+                    co_await incoming.async_receive(asio::use_awaitable);
+                }
+                catch(const std::out_of_range& e)
+                {
+                    msg.return_value->reset();
+                }
+                break;
+        }
+    }
+    co_return;
+}
+
+template <typename T, typename U>
+asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
+{
+    auto ex = co_await asio::this_coro::executor;
+    auto send_error = [](UChannel<std::string>& response_channel, json m) -> asio::awaitable<void>
+    {
+        co_await response_channel.async_send(boost::system::error_code{}, m.dump(), asio::use_awaitable);
+    };
+    std::map<std::string, int> commands
+    {
+        {"cancel", 0},
+        {"die", 1},
+        {"get", 2},
+        {"insert", 3},
+    };
+    bool alive = true;
+    std::string message;
+    json j;
+    // has bug with incoming message size of something.
+    while(alive)
+    {
+        message = co_await msg_channel.async_receive(asio::use_awaitable);
+        try
+        {
+            j = json::parse(message);
+        }
+        catch(const json::parse_error& pe)
+        {
+            json inv = CACHE_INVALID;
+            co_spawn(ex, send_error(response_channel, inv), asio::detached);
+            continue;
+        }
+        catch(const std::exception& e)
+        {
+            std::cout << __LINE__ << " : " << e.what() << "\n";
+            continue;
+        }
+        std::cout << "received new message from comms\n";
+        try
+        {
+            // respond in the cases of the switch block using "response_channel".
+            switch(commands.at(j["command"]))
+            {
+                case 0:
+                    alive = false;
+                    std::cout << "unaliving the handle_storage_commands\n";
+                    break;
+                case 1:
+                    co_await kill();
+                    std::cout << "killing storage\n";
+                    break;
+
+                case 2:
+                    co_spawn(ex, [this](UChannel<std::string>& response_channel, json& j) -> asio::awaitable<void>
+                    {
+                        try
+                        {
+                            U k = U::from_json(j);
+                            std::optional<T> res = co_await get(k);
+                            json v;
+                            if(res.has_value())
+                                v = T::to_json(*res);
+                            else
+                                v = CACHE_MISS;
+                            v["request"] = j["request"];
+                            co_await response_channel.async_send(boost::system::error_code{}, v.dump(), asio::use_awaitable);
+                            co_return;
+                        }
+                        catch(const json::type_error& te)
+                        {
+                            json a = CACHE_MISS;
+                            a["request"] = j["request"];
+                            co_await response_channel.async_send(boost::system::error_code{}, a.dump(), asio::use_awaitable);
+                        }
+                        catch(const std::exception& e)
+                        {
+                            std::cout << __LINE__ << " : " << e.what() << "\n";
+                        }
+                    }(response_channel, j), asio::detached);
+                    break;
+                case 3:
+                    co_spawn(ex, [this](UChannel<std::string>& response_channel, json& j) -> asio::awaitable<void>
+                    {
+                        try
+                        {
+                            U k = U::from_json(j);
+                            T v = T::from_json(j);
+                            std::vector<std::tuple<U, T>> data;
+                            data.push_back(std::make_tuple(k, v));
+                            co_await insert(data);
+                            json b = CACHE_INSERTED;
+                            b["request"] = j["request"];
+                            co_await response_channel.async_send(boost::system::error_code{}, b.dump(), asio::use_awaitable);
+                            co_return;
+                        }
+                        catch(const json::type_error& te)
+                        {
+                            json a = CACHE_INVALID_KEY_OR_VALUE;
+                            a["request"] = j["request"];
+                            co_await response_channel.async_send(boost::system::error_code{}, a.dump(), asio::use_awaitable);
+                        }
+                        catch(const std::exception& e)
+                        {
+                            std::cout << __LINE__ << " : " << e.what() << "\n";
+                        }
+                    }(response_channel, j), asio::detached);
+                    break;
+            }
+        }
+        catch(const json::type_error& te)
+        {
+            json a = CACHE_INVALID;
+            a["request"] = j["request"];
+            co_spawn(ex, send_error(response_channel, a), asio::detached);
+        }
+        catch(const std::out_of_range& ofr)
+        {
+            json a = CACHE_UNKNOWN_COMMAND;
+            a["request"] = j["request"];
+            co_spawn(ex, send_error(response_channel, a), asio::detached);
+        }
+    }
 }
 
 // Should get an io object as an argument,
@@ -54,6 +222,9 @@ template <typename T, typename U>
 asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
 {
     std::size_t hash = hasher(key);
+    // Allocate on the stack, not on the heap.
+    // or maybe do a single big heap allocation at the beginning of the program
+    // and use that.
     std::optional<T*> return_value = (T*)malloc(sizeof(T));
     Message<T, U> m;
     m.command = Get;
@@ -106,81 +277,5 @@ asio::awaitable<void> Storage<T, U>::kill()
     for(auto& channel : _outgoing)
         co_await channel->async_send(boost::system::error_code{}, m, asio::use_awaitable);
     std::cout << "kill ran\n";
-    co_return;
-}
-
-template <typename T, typename U>
-asio::awaitable<void> handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel, Storage<T, U>& storage)
-{
-    std::map<std::string, int> commands
-    {
-        {"cancel", 0},
-        {"die", 1},
-    };
-    bool alive = true;
-    std::string message;
-    while(alive)
-    {
-        message = co_await msg_channel.async_receive(asio::use_awaitable);
-        std::cout << "received new message from comms\n";
-        try
-        {
-            // respond in the cases of the switch block using "response_channel".
-            switch(commands.at(message))
-            {
-                case 0:
-                    alive = false;
-                    std::cout << "unaliving the handle_storage_commands\n";
-                    break;
-                case 1:
-                    co_await storage.kill();
-                    std::cout << "killing storage\n";
-                    break;
-            }
-        }
-        catch(const std::out_of_range& e){}
-    }
-}
-
-// Things get fucked when you use a template class method.
-// "cache" should not handle cases where the entry is
-// in the DB instead of the cache; it should spawn a coroutine
-// that waits for a respose from the DB and passes it
-// to "get".
-template <typename T, typename U>
-boost::asio::awaitable<void> cache(std::unordered_map<U, T>&& box, UChannel<Message<T, U>>& incoming)
-{
-    bool not_dead = true;
-    while(not_dead)
-    {
-        Message<T, U> msg = co_await incoming.async_receive(asio::use_awaitable);
-        switch(msg.command)
-        {
-            case Insert:
-                if(!msg.data)
-                    break;
-                for(auto record : *msg.data)
-                    box.insert({std::get<0>(record), std::get<1>(record)});
-                break;
-
-            case Die:
-                not_dead = false;
-                std::cout << "cache died\n";
-                break;
-
-            case Get:
-                try
-                {
-                    T value = box.at(*(msg.key));
-                    new (**msg.return_value) T(value);
-                    co_await incoming.async_receive(asio::use_awaitable);
-                }
-                catch(const std::out_of_range& e)
-                {
-                    msg.return_value->reset();
-                }
-                break;
-        }
-    }
     co_return;
 }

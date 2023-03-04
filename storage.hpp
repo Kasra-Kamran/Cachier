@@ -6,6 +6,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/asio.hpp>
+#include <nlohmann/json.hpp>
 #include <memory>
 #include <unordered_map>
 #include <optional>
@@ -18,6 +19,13 @@ using Executor = asio::any_io_executor;
 template <typename U>
 using UChannel = boost::asio::use_awaitable_t<Executor>::as_default_on_t<
     asio::experimental::concurrent_channel<void(error_code, U)>>;
+using json = nlohmann::json;
+
+const json CACHE_MISS = {{"available", false},};
+const json CACHE_INVALID = {{"valid", false},};
+const json CACHE_INVALID_KEY_OR_VALUE = {{"valid_key_and_value", false},};
+const json CACHE_INSERTED = {{"insertion_success", true},};
+const json CACHE_UNKNOWN_COMMAND = {{"command", "unknown"},};
 
 enum Command
 {
@@ -54,14 +62,9 @@ private:
     std::vector<std::shared_ptr<UChannel<Message<T, U>>>> _outgoing;
     std::hash<U> hasher;
 
-    // asio::awaitable<void> cache(std::unordered_map<U, T> box, std::shared_ptr<UChannel<U>> incoming);
+    asio::awaitable<void> cache(std::unordered_map<U, T>&& box, UChannel<Message<T, U>>& incoming);
+    asio::awaitable<void> handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel);
 };
-
-template <typename T, typename U>
-boost::asio::awaitable<void> cache(std::unordered_map<U, T>&& box, UChannel<Message<T, U>>& incoming);
-
-template <typename T, typename U>
-asio::awaitable<void> handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel, Storage<T, U>& storage);
 
 #include "storage.inl"
 
