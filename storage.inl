@@ -81,9 +81,9 @@ template <typename T, typename U>
 asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
 {
     auto ex = co_await asio::this_coro::executor;
-    auto send_error = [](UChannel<std::string>& response_channel, json m) -> asio::awaitable<void>
+    auto send_error = [](UChannel<std::string>& response_channel, std::string m) -> asio::awaitable<void>
     {
-        co_await response_channel.async_send(boost::system::error_code{}, m.dump(), asio::use_awaitable);
+        co_await response_channel.async_send(boost::system::error_code{}, m, asio::use_awaitable);
     };
     std::map<std::string, int> commands
     {
@@ -106,7 +106,7 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
         catch(const json::parse_error& pe)
         {
             json inv = CACHE_INVALID;
-            co_spawn(ex, send_error(response_channel, inv), asio::detached);
+            co_spawn(ex, send_error(response_channel, inv.dump()), asio::detached);
             continue;
         }
         catch(const std::exception& e)
@@ -123,6 +123,7 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
                 case 0:
                     alive = false;
                     std::cout << "unaliving the handle_storage_commands\n";
+                    co_spawn(ex, send_error(response_channel, "cancelled"), asio::detached);
                     break;
                 case 1:
                     co_await kill();
@@ -190,15 +191,16 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
         {
             json a = CACHE_INVALID;
             a["request"] = j["request"];
-            co_spawn(ex, send_error(response_channel, a), asio::detached);
+            co_spawn(ex, send_error(response_channel, a.dump()), asio::detached);
         }
         catch(const std::out_of_range& ofr)
         {
             json a = CACHE_UNKNOWN_COMMAND;
             a["request"] = j["request"];
-            co_spawn(ex, send_error(response_channel, a), asio::detached);
+            co_spawn(ex, send_error(response_channel, a.dump()), asio::detached);
         }
     }
+    co_return;
 }
 
 // Should get an io object as an argument,
@@ -222,6 +224,7 @@ template <typename T, typename U>
 asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
 {
     std::size_t hash = hasher(key);
+    // fix this! it's leaking memory like a sieve leaks water!
     // Allocate on the stack, not on the heap.
     // or maybe do a single big heap allocation at the beginning of the program
     // and use that.

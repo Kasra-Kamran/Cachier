@@ -12,6 +12,7 @@
 #include <functional>
 #include <mutex>
 #include <queue>
+#include <tuple>
 #include "storage.hpp"
 
 namespace asio = boost::asio;
@@ -32,8 +33,18 @@ public:
 
 private:
 
-    asio::awaitable<void> accept_loop(Channel& channel, std::size_t port, UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel);
-    // asio::awaitable<void> relay(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
+    asio::awaitable<void> accept_loop(
+        Channel& channel,
+        std::size_t port,
+        std::shared_ptr<UChannel<std::tuple<std::shared_ptr<UChannel<std::string>>,
+        std::shared_ptr<UChannel<std::string>>>>> relay_channel,
+        std::shared_ptr<Channel> kill_relay);
+    asio::awaitable<void> relay(
+        UChannel<std::string>& msg_channel,
+        UChannel<std::string>& response_channel,
+        std::shared_ptr<UChannel<std::tuple<std::shared_ptr<UChannel<std::string>>,
+        std::shared_ptr<UChannel<std::string>>>>> relay_channel,
+        std::shared_ptr<Channel> kill_relay);
     asio::awaitable<void> handle_connection(tcp::socket&& stream, Channel& kill_accept_loop, Channel& kc, std::atomic<int>& count, UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel);
     asio::awaitable<void> respond(tcp::socket& stream, UChannel<std::string>& response_channel, Channel& kill_response);
 };
