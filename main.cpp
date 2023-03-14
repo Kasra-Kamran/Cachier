@@ -107,8 +107,8 @@ int main()
 {
     asio::io_context io_context(2);
     Channel command_receiver_cancellation_channel(io_context, 2);
-    UChannel<std::string> msg_channel(io_context, 10);
-    UChannel<std::string> response_channel(io_context, 10);
+    UChannel<IdMessage> msg_channel(io_context, 10);
+    UChannel<IdMessage> response_channel(io_context, 10);
     Storage<value, key> storage(io_context, 5, msg_channel, response_channel);
     Comms command_receiver(io_context, command_receiver_cancellation_channel, 8001, msg_channel, response_channel);
     // Comms main(io_context, cancellation_channel)

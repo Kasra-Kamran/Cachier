@@ -17,7 +17,7 @@ Storage<T, U>::Storage(Storage<T, U>&& s)
 };
 
 template <typename T, typename U>
-Storage<T, U>::Storage(asio::io_service& io_ctx, std::size_t num_caches, UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
+Storage<T, U>::Storage(asio::io_service& io_ctx, std::size_t num_caches, UChannel<IdMessage>& msg_channel, UChannel<IdMessage>& response_channel)
 {
     for(int i = 0; i < num_caches; i++)
     {
@@ -78,12 +78,12 @@ asio::awaitable<void> Storage<T, U>::cache(std::unordered_map<U, T>&& box, UChan
 }
 
 template <typename T, typename U>
-asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel)
+asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<IdMessage>& msg_channel, UChannel<IdMessage>& response_channel)
 {
     auto ex = co_await asio::this_coro::executor;
-    auto send_error = [](UChannel<std::string>& response_channel, std::string m) -> asio::awaitable<void>
+    auto send_error = [](UChannel<IdMessage>& response_channel, IdMessage msg) -> asio::awaitable<void>
     {
-        co_await response_channel.async_send(boost::system::error_code{}, m, asio::use_awaitable);
+        co_await response_channel.async_send(boost::system::error_code{}, msg, asio::use_awaitable);
     };
     std::map<std::string, int> commands
     {
@@ -93,20 +93,21 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
         {"insert", 3},
     };
     bool alive = true;
-    std::string message;
+    IdMessage m;
     json j;
-    // has bug with incoming message size of something.
+    // has bug with incoming message size or something.
     while(alive)
     {
-        message = co_await msg_channel.async_receive(asio::use_awaitable);
+        m = co_await msg_channel.async_receive(asio::use_awaitable);
         try
         {
-            j = json::parse(message);
+            j = json::parse(m.message);
         }
         catch(const json::parse_error& pe)
         {
             json inv = CACHE_INVALID;
-            co_spawn(ex, send_error(response_channel, inv.dump()), asio::detached);
+            m.message = inv.dump();
+            co_spawn(ex, send_error(response_channel, m), asio::detached);
             continue;
         }
         catch(const std::exception& e)
@@ -123,7 +124,6 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
                 case 0:
                     alive = false;
                     std::cout << "unaliving the handle_storage_commands\n";
-                    co_spawn(ex, send_error(response_channel, "cancelled"), asio::detached);
                     break;
                 case 1:
                     co_await kill();
@@ -131,7 +131,7 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
                     break;
 
                 case 2:
-                    co_spawn(ex, [this](UChannel<std::string>& response_channel, json& j) -> asio::awaitable<void>
+                    co_spawn(ex, [this](UChannel<IdMessage>& response_channel, json& j, IdMessage& msg) -> asio::awaitable<void>
                     {
                         try
                         {
@@ -143,23 +143,25 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
                             else
                                 v = CACHE_MISS;
                             v["request"] = j["request"];
-                            co_await response_channel.async_send(boost::system::error_code{}, v.dump(), asio::use_awaitable);
+                            msg.message = v.dump();
+                            co_await response_channel.async_send(boost::system::error_code{}, msg, asio::use_awaitable);
                             co_return;
                         }
                         catch(const json::type_error& te)
                         {
                             json a = CACHE_MISS;
                             a["request"] = j["request"];
-                            co_await response_channel.async_send(boost::system::error_code{}, a.dump(), asio::use_awaitable);
+                            msg.message = a.dump();
+                            co_await response_channel.async_send(boost::system::error_code{}, msg, asio::use_awaitable);
                         }
                         catch(const std::exception& e)
                         {
                             std::cout << __LINE__ << " : " << e.what() << "\n";
                         }
-                    }(response_channel, j), asio::detached);
+                    }(response_channel, j, m), asio::detached);
                     break;
                 case 3:
-                    co_spawn(ex, [this](UChannel<std::string>& response_channel, json& j) -> asio::awaitable<void>
+                    co_spawn(ex, [this](UChannel<IdMessage>& response_channel, json& j, IdMessage& msg) -> asio::awaitable<void>
                     {
                         try
                         {
@@ -170,20 +172,22 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
                             co_await insert(data);
                             json b = CACHE_INSERTED;
                             b["request"] = j["request"];
-                            co_await response_channel.async_send(boost::system::error_code{}, b.dump(), asio::use_awaitable);
+                            msg.message = b.dump();
+                            co_await response_channel.async_send(boost::system::error_code{}, msg, asio::use_awaitable);
                             co_return;
                         }
                         catch(const json::type_error& te)
                         {
                             json a = CACHE_INVALID_KEY_OR_VALUE;
                             a["request"] = j["request"];
-                            co_await response_channel.async_send(boost::system::error_code{}, a.dump(), asio::use_awaitable);
+                            msg.message = a.dump();
+                            co_await response_channel.async_send(boost::system::error_code{}, msg, asio::use_awaitable);
                         }
                         catch(const std::exception& e)
                         {
                             std::cout << __LINE__ << " : " << e.what() << "\n";
                         }
-                    }(response_channel, j), asio::detached);
+                    }(response_channel, j, m), asio::detached);
                     break;
             }
         }
@@ -191,13 +195,15 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<std::strin
         {
             json a = CACHE_INVALID;
             a["request"] = j["request"];
-            co_spawn(ex, send_error(response_channel, a.dump()), asio::detached);
+            m.message = a.dump();
+            co_spawn(ex, send_error(response_channel, m), asio::detached);
         }
         catch(const std::out_of_range& ofr)
         {
             json a = CACHE_UNKNOWN_COMMAND;
             a["request"] = j["request"];
-            co_spawn(ex, send_error(response_channel, a.dump()), asio::detached);
+            m.message = a.dump();
+            co_spawn(ex, send_error(response_channel, m), asio::detached);
         }
     }
     co_return;

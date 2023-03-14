@@ -35,6 +35,12 @@ enum Command
     Ping,
 };
 
+struct IdMessage
+{
+    int id;
+    std::string message;
+};
+
 template <typename T, typename U>
 struct Message
 {
@@ -50,7 +56,7 @@ template <typename T, typename U>
 class Storage
 {
 public:
-    Storage(asio::io_context& io_context, std::size_t num_caches, UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel);
+    Storage(asio::io_context& io_context, std::size_t num_caches, UChannel<IdMessage>& msg_channel, UChannel<IdMessage>& response_channel);
     Storage(Storage&& s);
     // One public method for each command.
     asio::awaitable<std::optional<T>> get(U key);
@@ -63,7 +69,7 @@ private:
     std::hash<U> hasher;
 
     asio::awaitable<void> cache(std::unordered_map<U, T>&& box, UChannel<Message<T, U>>& incoming);
-    asio::awaitable<void> handle_storage_commands(UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel);
+    asio::awaitable<void> handle_storage_commands(UChannel<IdMessage>& msg_channel, UChannel<IdMessage>& response_channel);
 };
 
 #include "storage.inl"
