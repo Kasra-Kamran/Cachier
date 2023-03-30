@@ -234,7 +234,8 @@ asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
     // Allocate on the stack, not on the heap.
     // or maybe do a single big heap allocation at the beginning of the program
     // and use that.
-    std::optional<T*> return_value = (T*)malloc(sizeof(T));
+    // std::optional<T*> return_value = (T*)malloc(sizeof(T));
+    std::optional<T*> return_value = (T*)_p.get();
     Message<T, U> m;
     m.command = Get;
     m.key = key;
@@ -245,7 +246,12 @@ asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
     p.command = Ping;
     co_await ch.async_send(boost::system::error_code{}, p, asio::use_awaitable);
     if(return_value.has_value())
-        co_return **return_value;
+    {
+        // std::cout << **return_value << "\n";
+        T r(**return_value);
+        _p.free(*return_value);
+        co_return r;
+    }
     co_return std::optional<T>{};
 }
 

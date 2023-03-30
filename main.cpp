@@ -9,11 +9,10 @@ struct key
 {
 public:
     int id;
-    float date;
 
     friend bool operator==(const key& lhs, const key& rhs)
     {
-        if(lhs.id == rhs.id && lhs.date == rhs.date)
+        if(lhs.id == rhs.id)
             return true;
         return false;
     }
@@ -24,7 +23,6 @@ public:
         {
             key k;
             k.id = j["id"];
-            k.date = j["date"];
             return k;
         }
         catch(const std::exception& e)
@@ -39,7 +37,6 @@ public:
         return json
         {
             {"id", k.id},
-            {"date", k.date},
         };
     }
 };
@@ -88,8 +85,7 @@ namespace std
         std::size_t operator()(const key& k) const
         {
             std::hash<string> hasher;
-            return (hasher(std::to_string(k.id)) ^
-                    (hasher(std::to_string(k.date)) << 1));
+            return hasher(std::to_string(k.id));
         }
     };
 
@@ -119,7 +115,6 @@ int main()
         std::vector<std::tuple<key, value>> data;
         key k;
         k.id = 5;
-        k.date = 2.5;
         value v;
         v.data = "the cache is working!";
         data.push_back(std::make_tuple(k, v));
