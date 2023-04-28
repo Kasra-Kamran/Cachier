@@ -43,6 +43,7 @@ struct IdMessage
     std::string message;
 };
 
+// use headers for each memory section.
 template <typename S, size_t T>
 class MemPool
 {
@@ -55,12 +56,6 @@ public:
 
     S* get()
     {
-        // if(available[next])
-        // {
-        //     available[next] = false;
-        //     next += 1;
-        //     return (memory + (next - 1) * S);
-        // }
         for(int i = 0; i < T; i++)
         {
             if(available[i])
@@ -99,7 +94,6 @@ class Storage
 public:
     Storage(asio::io_context& io_context, std::size_t num_caches, UChannel<IdMessage>& msg_channel, UChannel<IdMessage>& response_channel);
     Storage(Storage&& s);
-    // One public method for each command.
     asio::awaitable<std::optional<T>> get(U key);
     asio::awaitable<void> insert(std::vector<std::tuple<U, T>> entries);
     asio::awaitable<void> kill();

@@ -25,8 +25,6 @@ asio::awaitable<void> Comms::relay(
     std::shared_ptr<UChannel<IdMessage>> m;
     std::tuple<int, std::shared_ptr<UChannel<std::string>>> r;
 
-    // UChannel<std::string>* m;
-    // UChannel<std::string>* r;
     Channel kill_responder(ex, 1);
 
     UChannel<int> remove_channel(ex, 5);
@@ -36,7 +34,6 @@ asio::awaitable<void> Comms::relay(
     UChannel<int>& remove_channel,
     Channel& kill_responder) -> asio::awaitable<void>
     {
-        // std::vector<std::shared_ptr<UChannel<std::string>>> list_channels;
         std::unordered_map<int, std::shared_ptr<UChannel<std::string>>> list_channels;
         IdMessage m;
         int num;
@@ -49,16 +46,6 @@ asio::awaitable<void> Comms::relay(
                                remove_channel.async_receive(asio::use_awaitable) ||
                                kill_responder.async_receive(asio::use_awaitable));
 
-            // if(v.index())
-            // {
-                // IdMessage m = std::get<1>(v);
-                // co_await list_channels[m.id]->async_send(boost::system::error_code{}, m.message, asio::use_awaitable);
-            // }
-            // else
-            // {
-            //     std::tie(num, channel) = std::get<0>(v);
-            //     list_channels.try_emplace(num, channel);
-            // }
             switch(v.index())
             {
                 case 0:
@@ -78,7 +65,6 @@ asio::awaitable<void> Comms::relay(
                     break;
             }
         }
-        std::cout << "responder died.\n";
     }(channelchannel, response_channel, remove_channel, kill_responder), asio::detached);
 
     while(true)
@@ -91,23 +77,6 @@ asio::awaitable<void> Comms::relay(
             
             co_await channelchannel.async_send(boost::system::error_code{}, r, asio::use_awaitable);
 
-            // co_spawn(ex, [](UChannel<std::string>& msg_channel, UChannel<std::string>& response_channel, std::shared_ptr<UChannel<std::string>> m, std::shared_ptr<UChannel<std::string>> r, std::shared_ptr<Channel> kill_responder) -> asio::awaitable<void>
-            // {
-            //     for(std::string response;;)
-            //     {
-            //         auto v = co_await (kill_responder->async_receive(asio::use_awaitable) ||
-            //                            response_channel.async_receive(asio::use_awaitable));
-            //         if(v.index())
-            //         {
-            //             co_await r->async_send(boost::system::error_code{}, std::get<1>(v), asio::use_awaitable);
-            //         }
-            //         else
-            //         {
-            //             break;
-            //         }
-            //     }
-            //     co_return;
-            // }(msg_channel, response_channel, m, r, kill_responder), asio::detached);
             co_spawn(ex, [](UChannel<IdMessage>& msg_channel, std::shared_ptr<UChannel<IdMessage>> m,
             UChannel<int>& remove_channel) -> asio::awaitable<void>
             {
@@ -147,7 +116,6 @@ asio::awaitable<void> Comms::accept_loop(
     Channel kc(ex, 1);
     auto kc_count = std::atomic<int>(0);
     tcp::acceptor acceptor(ex, {{}, port});
-    // tcp::socket sock(ex);
 
     while(true)
     {
@@ -182,18 +150,15 @@ asio::awaitable<void> Comms::accept_loop(
         }
     }
 
-    std::cout << "exited loop.\n";
     co_await kill_relay->async_send(boost::system::error_code{}, true, asio::use_awaitable);
+    // Use a condition variable instead of whatever this is.
     while(kc_count > 0)
     {
-        std::cout << "waiting to receive message...\n";
         co_await kc.async_receive(asio::use_awaitable);
     }
-    std::cout << "accept_loop died.\n";
     co_return;
 }
 
-// fix this response channel shit, the responder doesn't work!
 asio::awaitable<void> Comms::handle_connection(std::shared_ptr<tcp::socket> stream, Channel& kill_accept_loop, Channel& kc, std::atomic<int>& kc_count, UChannel<IdMessage>& msg_channel, UChannel<std::string>& response_channel, int id)
 {
     // Re-read this code.
@@ -251,13 +216,11 @@ asio::awaitable<void> Comms::handle_connection(std::shared_ptr<tcp::socket> stre
 
         if (ec) break;
     }
-    // blocks because the receiving end gets fucked somehow.
     m.message = "cancel";
     co_await msg_channel.async_send(boost::system::error_code{}, m, asio::use_awaitable);
     kc_count -= 1;
     kc.try_send(boost::system::error_code{}, true);
     co_await kill_response.async_send(boost::system::error_code{}, true, asio::use_awaitable);
-    std::cout << "handler died\n";
     co_return;
 }
 

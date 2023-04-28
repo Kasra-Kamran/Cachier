@@ -61,7 +61,7 @@ asio::awaitable<void> Storage<T, U>::cache(std::unordered_map<U, T>&& box, UChan
             case Get:
                 try
                 {
-                    // fix this it's shit and will break.
+                    // fix this it's really hacky.
                     T value = box.at(*(msg.key));
                     new (**msg.return_value) T(value);
                     // make this async_send.
@@ -115,10 +115,8 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<IdMessage>
             std::cout << __LINE__ << " : " << e.what() << "\n";
             continue;
         }
-        std::cout << "received new message from comms\n";
         try
         {
-            // respond in the cases of the switch block using "response_channel".
             switch(commands.at(j["command"]))
             {
                 case 0:
@@ -209,32 +207,10 @@ asio::awaitable<void> Storage<T, U>::handle_storage_commands(UChannel<IdMessage>
     co_return;
 }
 
-// Should get an io object as an argument,
-// create a coroutine and pass the io object
-// and the receiving end of a channel
-// communicating with "cache" to it.
-// This coroutine waits for a response
-// from the "cache" and sends it to
-// the io object.
-//
-// OR (the seconds one is better)
-//
-// It should return an awaitable
-// and let a higher layer handle sending
-// the result to the client,
-// which means "get" should be spawned as
-// a coroutine.
-// Also you should be able to spawn
-// multiple "get"s.
 template <typename T, typename U>
 asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
 {
     std::size_t hash = hasher(key);
-    // fix this! it's leaking memory like a sieve leaks water!
-    // Allocate on the stack, not on the heap.
-    // or maybe do a single big heap allocation at the beginning of the program
-    // and use that.
-    // std::optional<T*> return_value = (T*)malloc(sizeof(T));
     std::optional<T*> return_value = (T*)_p.get();
     Message<T, U> m;
     m.command = Get;
@@ -247,7 +223,6 @@ asio::awaitable<std::optional<T>> Storage<T, U>::get(U key)
     co_await ch.async_send(boost::system::error_code{}, p, asio::use_awaitable);
     if(return_value.has_value())
     {
-        // std::cout << **return_value << "\n";
         T r(**return_value);
         _p.free(*return_value);
         co_return r;
@@ -291,6 +266,5 @@ asio::awaitable<void> Storage<T, U>::kill()
     m.command = Die;
     for(auto& channel : _outgoing)
         co_await channel->async_send(boost::system::error_code{}, m, asio::use_awaitable);
-    std::cout << "kill ran\n";
     co_return;
 }

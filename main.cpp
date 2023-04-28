@@ -102,12 +102,14 @@ namespace std
 int main()
 {
     asio::io_context io_context(2);
-    Channel command_receiver_cancellation_channel(io_context, 2);
+    Channel cancellation_channel(io_context, 2);
     UChannel<IdMessage> msg_channel(io_context, 10);
     UChannel<IdMessage> response_channel(io_context, 10);
     Storage<value, key> storage(io_context, 5, msg_channel, response_channel);
-    Comms command_receiver(io_context, command_receiver_cancellation_channel, 8001, msg_channel, response_channel);
-    // Comms main(io_context, cancellation_channel)
+    // This comms should have some sort of authentication
+    // and be used to receive commands.
+    // Make another for getting and inserting data.
+    Comms command_receiver(io_context, cancellation_channel, 8001, msg_channel, response_channel);
 
     // test: get and insert.
     co_spawn(io_context, [](Storage<value, key>& storage) -> asio::awaitable<void>
